@@ -19,7 +19,7 @@ import time
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_groq import ChatGroq
+from langchain_aws import ChatBedrockConverse
 
 from app.classify_service import _parse_llm_json
 from app.models import DocumentAnalysis
@@ -28,16 +28,14 @@ from app.tender_store import get_documents_to_analyze, save_document_analysis
 MAX_TOTAL_CHARS = 10000   # text sent to the LLM per document
 MAX_PAGE_CHARS = 4000
 MIN_PAGE_CHARS = 400
-CALL_PAUSE_SECONDS = 8    # documents are bigger than emails: stay under Groq's token-per-minute limit
+CALL_PAUSE_SECONDS = 8    # documents are bigger than emails: pace requests conservatively
 
-# Own model instance: documents need a larger output budget than emails, and a
-# reasoning model can otherwise spend it all thinking and return an empty answer.
-doc_llm = ChatGroq(
-    model=os.getenv("DOC_MODEL", "openai/gpt-oss-20b"),
+# Own model instance: documents need a larger output budget than emails.
+doc_llm = ChatBedrockConverse(
+    model=os.getenv("DOC_MODEL", os.getenv("BEDROCK_MODEL", "openai.gpt-oss-20b-1:0")),
+    region_name=os.getenv("AWS_REGION", "ap-south-1"),
     temperature=0,
     max_tokens=4096,
-    reasoning_effort="low",
-    api_key=os.getenv("GROQ_API_KEY"),
 )
 
 analysis_prompt = ChatPromptTemplate.from_template(

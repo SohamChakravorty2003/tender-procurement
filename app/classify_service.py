@@ -2,7 +2,7 @@ import os
 import json
 import time
 from dotenv import load_dotenv
-from langchain_groq import ChatGroq
+from langchain_aws import ChatBedrockConverse
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from app.models import EmailAnalysisResult
@@ -10,10 +10,10 @@ from app.tender_store import get_email_analysis, get_tender_id_for_thread, save_
 
 load_dotenv()
 
-llm = ChatGroq(
-    model="openai/gpt-oss-20b",
+llm = ChatBedrockConverse(
+    model=os.getenv("BEDROCK_MODEL", "openai.gpt-oss-20b-1:0"),
+    region_name=os.getenv("AWS_REGION", "ap-south-1"),
     temperature=0,
-    api_key=os.getenv("GROQ_API_KEY"),
 )
 
 MAX_BODY_CHARS = 2000
@@ -173,7 +173,7 @@ def analyze_email_cached(email_id: str, thread_id: str, subject: str, body: str,
          guess if both exist. Save with status="ok".
          On failure: save with status="failed" and nothing else guessed.
       5. Sleep briefly after a *fresh* LLM call only (never on a cache hit),
-         to stay well under Groq's rate limit.
+         to stay within the model provider's rate limits.
       6. Re-read the row from the database before returning, so the caller
          always gets back exactly what's stored — one source of truth.
     """

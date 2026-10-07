@@ -307,7 +307,7 @@ def extract_message_offers(
     except Exception as exc:
         error = str(exc).lower()
         if "rate_limit_exceeded" in error or "quota" in error or "429" in error:
-            raise SystemExit("Groq rate limit or quota reached. No offers from this source were changed; retry later.") from exc
+            raise SystemExit("Model provider rate limit or quota reached. No offers from this source were changed; retry later.") from exc
         message = f"LLM request failed ({type(exc).__name__}); see backend log"
         print(f"      Offer extraction failed: {exc}")
     print(f"      {message}")
