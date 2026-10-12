@@ -462,6 +462,7 @@ name = "email-project"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "boto3" },
     { name = "fastapi" },
     { name = "google-api-python-client" },
     { name = "google-auth-httplib2" },
@@ -479,6 +480,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "boto3", specifier = ">=1.42,<2.0" },
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "google-api-python-client", specifier = ">=2.200.0" },
     { name = "google-auth-httplib2", specifier = ">=0.4.2" },

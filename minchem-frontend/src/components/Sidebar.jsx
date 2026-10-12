@@ -2,7 +2,7 @@ export default function Sidebar({ view, onNavigate, pendingReviews, status, last
   const items = [
     { key: "inbox", label: "Inbox" },
     { key: "tenders", label: "Tenders" },
-    { key: "reviews", label: "Reviews", badge: pendingReviews }
+    { key: "reviews", label: "Review issues", badge: pendingReviews }
   ];
   const active = view === "tender" ? "tenders" : view;
 
@@ -26,7 +26,7 @@ export default function Sidebar({ view, onNavigate, pendingReviews, status, last
               onClick={() => onNavigate(it.key)}
             >
               <span>{it.label}</span>
-              {it.badge > 0 && <span className="nav__count">{it.badge}</span>}
+              {it.badge > 0 && <span className="nav__count" title="Open review issues; a PDF can have more than one issue">{it.badge}</span>}
             </button>
           ))}
         </nav>

@@ -1,4 +1,7 @@
-from fastapi import FastAPI, File, HTTPException, UploadFile
+import hashlib
+from urllib.parse import quote
+
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 
@@ -9,6 +12,7 @@ from app.models import (
     TenderDeletionPreviewRequest,
     TenderDeletionRequest,
     DeletedThreadRestoreRequest,
+    V2ClusterAssignmentRequest,
 )
 from app.models import EmailListResponse, ReviewResolution
 from app.email_service import EmailService
@@ -21,13 +25,24 @@ from app.tender_store import (
     list_link_reviews,
     list_tenders,
     resolve_link_review,
-    save_offer_marks,
+    create_v2_document_job,
+    assign_v2_review_cluster,
+    get_v2_document,
+    get_v2_document_pdf,
+    get_v2_job,
+    list_v2_documents,
+    list_v2_reviews,
+    reopen_v2_review,
+    resolve_v2_review,
+    retry_v2_job,
+    seal_v2_upload_batch,
+    sync_v2_email_messages,
 )
-from app.upload_service import process_upload, process_tender_attachments
+from app.upload_service import process_tender_attachments
 from app.bid_service import extract_pending_bids, register_missing_tender_bids
 from app.offer_service import extract_thread_offers
-from app.accept_service import plan_tender
 from app.thread_restore_service import restore_and_reprocess_thread
+from app.v2_job_service import process_v2_document_job
 
 email_service = EmailService()
 app = FastAPI()
@@ -71,6 +86,7 @@ def read_emails():
             ) from e
         raise HTTPException(status_code=502, detail=f"Gmail error: {e}") from e
 
+    sync_v2_email_messages(emails)
     return {
         "emails": emails
     }
@@ -146,8 +162,6 @@ async def extract_tender_offers(body: TenderOfferExtractionRequest):
         )
     except SystemExit as e:
         raise HTTPException(status_code=429, detail=str(e)) from e
-    plan = plan_tender(body.tender_id)
-    save_offer_marks(body.tender_id, plan["duplicates"], plan["accepted_ids"])
     return {
         "tender_id": body.tender_id,
         "attachment_emails_checked": attachment_counts["emails_checked"],
@@ -163,8 +177,9 @@ async def extract_tender_offers(body: TenderOfferExtractionRequest):
         "thread_documents_failed": document_counts["failed"],
         "thread_errors": document_counts["errors"],
         "thread_documents_without_offers": document_counts["no_offers"],
-        "duplicates_marked": len(plan["duplicates"]),
-        "accepted_marked": len(plan["accepted_ids"]),
+        "duplicates_marked": 0,
+        "accepted_marked": 0,
+        "accepted_matching": "disabled; V2 contract reconciliation requires review",
     }
 
 
@@ -184,8 +199,13 @@ async def process_tender_pdf_attachments(body: TenderAttachmentProcessingRequest
         raise HTTPException(status_code=502, detail=f"Could not process Gmail attachments: {e}") from e
 
 
-@app.post("/documents/upload")
-async def upload_document(file: UploadFile = File(...)):
+@app.post("/documents/upload", status_code=202)
+async def upload_document(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    upload_batch_id: str | None = Form(default=None),
+):
+    """Queue the durable V2 image-analysis workflow for one PDF upload."""
     name = file.filename or "upload.pdf"
     if not name.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
@@ -194,10 +214,117 @@ async def upload_document(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="The file is empty")
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File is larger than 25 MB")
+    if upload_batch_id is not None and (not upload_batch_id.strip() or len(upload_batch_id) > 100):
+        raise HTTPException(status_code=400, detail="upload_batch_id must be between 1 and 100 characters")
+    queued = create_v2_document_job(
+        name,
+        data,
+        hashlib.sha256(data).hexdigest(),
+        upload_batch_id=upload_batch_id.strip() if upload_batch_id else None,
+    )
+    if queued["status"] == "queued" and queued["is_new"]:
+        background_tasks.add_task(process_v2_document_job, queued["job_id"])
+    return queued
+
+
+@app.get("/documents")
+def read_v2_documents():
+    """List durable V2 documents and their processing state."""
+    return {"documents": list_v2_documents()}
+
+
+@app.post("/documents/upload-batches/{upload_batch_id}/complete")
+def complete_upload_batch(upload_batch_id: str):
+    """Seal a browser selection so its completed PDFs can be batch-reconciled."""
+    if not upload_batch_id.strip() or len(upload_batch_id) > 100:
+        raise HTTPException(status_code=400, detail="upload_batch_id must be between 1 and 100 characters")
+    return seal_v2_upload_batch(upload_batch_id.strip())
+
+
+@app.get("/documents/{document_id}/pages")
+def read_v2_document_pages(document_id: int):
+    document = get_v2_document(document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
+    return {"document_id": document_id, "pages": document["pages"]}
+
+
+@app.get("/documents/{document_id}/file")
+def read_v2_document_pdf(document_id: int):
+    """Serve the locally stored original PDF for an on-demand review preview."""
+    document = get_v2_document_pdf(document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
+    file_name, pdf_bytes = document
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(file_name)}"},
+    )
+
+
+@app.get("/documents/{document_id}")
+def read_v2_document(document_id: int):
+    document = get_v2_document(document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
+    return document
+
+
+@app.get("/processing-jobs/{job_id}")
+def read_v2_processing_job(job_id: int):
+    job = get_v2_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Processing job {job_id} not found")
+    return job
+
+
+@app.post("/processing-jobs/{job_id}/retry", status_code=202)
+def retry_v2_processing_job(job_id: int, background_tasks: BackgroundTasks):
     try:
-        return await run_in_threadpool(process_upload, data, name)
+        job = retry_v2_job(job_id)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    background_tasks.add_task(process_v2_document_job, job_id)
+    return job
+
+
+@app.get("/v2/reviews")
+def read_v2_reviews(status: str | None = "pending"):
+    return {"reviews": list_v2_reviews(None if status == "all" else status)}
+
+
+@app.post("/v2/reviews/{review_id}/resolve")
+def resolve_v2_document_review(review_id: int, body: ReviewResolution):
+    """Apply a human tender assignment to one image-first PDF review."""
+    try:
+        return resolve_v2_review(review_id, action=body.action, tender_id=body.tender_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/v2/reviews/{review_id}/assign-cluster")
+def assign_v2_document_cluster(review_id: int, body: V2ClusterAssignmentRequest):
+    """Apply one human decision to the review's persisted reference component."""
+    try:
+        return assign_v2_review_cluster(review_id, body.tender_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/v2/reviews/{review_id}/reopen")
+def reopen_v2_document_review(review_id: int):
+    """Return a deliberately ungrouped PDF to the document-review queue."""
+    try:
+        return reopen_v2_review(review_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.get("/reviews")

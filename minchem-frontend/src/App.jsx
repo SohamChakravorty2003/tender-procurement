@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getEmails, getReviews } from "./api";
+import { getEmails, getReviews, getV2Reviews } from "./api";
 import Sidebar from "./components/Sidebar";
 import InboxView from "./components/InboxView";
 import ComposeView from "./components/ComposeView";
@@ -41,7 +41,9 @@ export default function App() {
   }, []);
 
   const loadReviewCount = useCallback(() => {
-    getReviews("pending").then((r) => setPendingReviews(r.length)).catch(() => {});
+    Promise.all([getReviews("pending"), getV2Reviews("pending")])
+      .then(([linkReviews, documentReviews]) => setPendingReviews(linkReviews.length + documentReviews.length))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {

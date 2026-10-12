@@ -80,12 +80,23 @@ export default function TenderDetail({ tenderId, onBack }) {
   if (error) return <div className="page">{back}<div className="notice notice--error">{error}</div></div>;
   if (!data) return <div className="page">{back}<p className="muted">Loading…</p></div>;
 
-  const { tender, emails, documents, bids } = data;
+  const { tender, emails, documents, v2_documents: v2Documents = [], bids } = data;
   const offers = bids.filter((b) => b.offer);
   const pendingBids = bids.filter((b) => !b.offer);
-  const docCount = Object.values(documents).reduce((n, list) => n + list.length, 0);
+  const docCount = Object.values(documents).reduce((n, list) => n + list.length, 0) + v2Documents.length;
+  const uploadedDocumentsByType = v2Documents.reduce((groups, document) => {
+    const type = document.document_type || "unclassified";
+    (groups[type] ||= []).push(document);
+    return groups;
+  }, {});
+  const documentTypes = [...new Set([...Object.keys(documents), ...Object.keys(uploadedDocumentsByType)])];
   const accepted = offers.filter((b) => b.accepted).length;
   const offerNumbers = new Map(offers.map((b, index) => [b.id, index + 1]));
+  const linkMethodLabel = (method) => ({
+    verified_folder: "confirmed folder",
+    upload_batch_explicit_tender: "uploaded tender set",
+    upload_batch_generated_tender: "uploaded tender set"
+  }[method] || method || "â€”");
 
   async function handleExtractOffers() {
     setExtracting(true);
@@ -158,6 +169,7 @@ export default function TenderDetail({ tenderId, onBack }) {
       <header className="page__head">
         <div>
           <h1>{tender.tender_id}</h1>
+          {tender.title && <p className="muted">{tender.title}</p>}
           <p className="muted">
             {emails.length} emails · {docCount} documents · {offers.filter((b) => !b.duplicate_of).length} offers
             {accepted > 0 && ` · ${accepted} accepted`}
@@ -240,9 +252,12 @@ export default function TenderDetail({ tenderId, onBack }) {
         <h2>Documents</h2>
         {docCount === 0 && <p className="empty">No documents linked.</p>}
         <div className="grid">
-          {Object.entries(documents).map(([type, docs]) => (
+          {documentTypes.map((type) => {
+            const docs = documents[type] || [];
+            const uploadedDocs = uploadedDocumentsByType[type] || [];
+            return (
             <div key={type} className="card">
-              <div className="card__title">{docTypeLabel(type)} <span className="muted">({docs.length})</span></div>
+              <div className="card__title">{docTypeLabel(type)} <span className="muted">({docs.length + uploadedDocs.length})</span></div>
               {docs.map((d) => (
                 <div key={d.id} className="doc">
                   <div className="doc__name" title={d.file_name}>{d.file_name}</div>
@@ -260,8 +275,22 @@ export default function TenderDetail({ tenderId, onBack }) {
                   </div>
                 </div>
               ))}
+              {uploadedDocs.map((document) => (
+                <div key={`v2-${document.id}`} className="doc">
+                  <div className="doc__name" title={document.file_name}>{document.file_name}</div>
+                  <div className="row">
+                    <Badge tone={document.processing_state === "completed" ? "green" : "amber"}>
+                      {document.processing_state === "completed" ? "analysed" : document.processing_state}
+                    </Badge>
+                    <span className="muted small">
+                      {document.page_count ?? "â€”"} p Â· linked by {linkMethodLabel(document.link_method)}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 

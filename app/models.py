@@ -45,6 +45,10 @@ class DeletedThreadRestoreRequest(BaseModel):
     email_id: str = Field(..., min_length=1)
     thread_id: str = Field(..., min_length=1)
 
+
+class V2ClusterAssignmentRequest(BaseModel):
+    tender_id: str = Field(..., min_length=1)
+
 class EmailCategory(StrEnum):
     QUOTATION_REQUEST = "quotation_request"
     FOLLOW_UP = "follow_up"

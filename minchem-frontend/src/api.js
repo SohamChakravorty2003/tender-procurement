@@ -63,14 +63,27 @@ export const processTenderAttachments = (tenderId) =>
     body: JSON.stringify({ tender_id: tenderId })
   });
 
-export function uploadPdf(file) {
+export function uploadPdf(file, uploadBatchId) {
   const form = new FormData();
   form.append("file", file);
+  if (uploadBatchId) form.append("upload_batch_id", uploadBatchId);
   return request("/documents/upload", { method: "POST", body: form });
 }
 
+export const completeUploadBatch = (uploadBatchId) =>
+  request(`/documents/upload-batches/${encodeURIComponent(uploadBatchId)}/complete`, { method: "POST" });
+
+export const getDocuments = () => request("/documents").then((d) => d.documents ?? []);
+export const getDocument = (id) => request(`/documents/${id}`);
+export const getDocumentPdfUrl = (id) => `${BASE}/documents/${id}/file`;
+export const getProcessingJob = (id) => request(`/processing-jobs/${id}`);
+export const retryProcessingJob = (id) => request(`/processing-jobs/${id}/retry`, { method: "POST" });
+
 export const getReviews = (status = "pending") =>
   request(`/reviews?status=${status}`).then((d) => d.reviews ?? []);
+
+export const getV2Reviews = (status = "pending") =>
+  request(`/v2/reviews?status=${status}`).then((d) => d.reviews ?? []);
 
 export const resolveReview = (id, action, tenderId) =>
   request(`/reviews/${id}/resolve`, {
@@ -78,6 +91,23 @@ export const resolveReview = (id, action, tenderId) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action, tender_id: tenderId ?? null })
   });
+
+export const resolveV2Review = (id, action, tenderId) =>
+  request(`/v2/reviews/${id}/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, tender_id: tenderId ?? null })
+  });
+
+export const assignV2ReviewCluster = (id, tenderId) =>
+  request(`/v2/reviews/${id}/assign-cluster`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tender_id: tenderId })
+  });
+
+export const reopenV2Review = (id) =>
+  request(`/v2/reviews/${id}/reopen`, { method: "POST" });
 
 export const getThread = (threadId) =>
   request(`/threads/${encodeURIComponent(threadId)}`).then((d) => d.messages ?? []);

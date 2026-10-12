@@ -23,6 +23,7 @@ export const DOC_TYPE_LABELS = {
   purchase_order: "Purchase orders",
   sales_contract: "Sales contracts",
   shipping_documents: "Shipping documents",
+  shipping_document: "Shipping documents",
   quotation: "Quotations",
   tender_rfq: "Tender / RFQ",
   other: "Other",

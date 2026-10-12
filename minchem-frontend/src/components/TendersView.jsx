@@ -11,10 +11,30 @@ export default function TendersView({ onOpenTender }) {
   const [deleteError, setDeleteError] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [message, setMessage] = useState(null);
+  const [newTenderIds, setNewTenderIds] = useState(() => new Set());
   const messageTimer = useRef(null);
+  const initialTenderLoad = useRef(false);
+  const knownDocumentCounts = useRef(new Map());
 
   const load = useCallback(() => {
-    getTenders().then(setRows).catch((e) => setError(e.message));
+    getTenders().then((nextRows) => {
+      const nextCounts = new Map(nextRows.map((tender) => [tender.tender_id, tender.document_count]));
+      if (initialTenderLoad.current) {
+        setNewTenderIds((current) => {
+          const next = new Set(current);
+          for (const tender of nextRows) {
+            if (tender.document_count > (knownDocumentCounts.current.get(tender.tender_id) || 0)) {
+              next.add(tender.tender_id);
+            }
+          }
+          return next;
+        });
+      }
+      initialTenderLoad.current = true;
+      knownDocumentCounts.current = nextCounts;
+      setRows(nextRows);
+      setError(null);
+    }).catch((e) => setError(e.message));
   }, []);
   useEffect(load, [load]);
   useEffect(() => () => clearTimeout(messageTimer.current), []);
@@ -59,7 +79,10 @@ export default function TendersView({ onOpenTender }) {
         </div>
       </header>
 
-      <UploadBox onDone={load} onOpenTender={onOpenTender} />
+      <section>
+        <h2>Upload documents</h2>
+        <UploadBox onDone={load} />
+      </section>
 
       {error && <div className="notice notice--error">{error}</div>}
       {message && <div className="notice notice--success">{message}</div>}
@@ -71,6 +94,7 @@ export default function TendersView({ onOpenTender }) {
           <table className="table">
             <thead>
               <tr>
+                <th className="num">#</th>
                 <th>Tender</th>
                 <th>Id source</th>
                 <th className="num">Documents</th>
@@ -81,9 +105,20 @@ export default function TendersView({ onOpenTender }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((t) => (
-                <tr key={t.tender_id} className="is-click" onClick={() => onOpenTender(t.tender_id)}>
-                  <td><strong>{t.tender_id}</strong></td>
+              {rows.map((t, index) => (
+                <tr key={t.tender_id} className="is-click" onClick={() => {
+                  setNewTenderIds((current) => {
+                    const next = new Set(current);
+                    next.delete(t.tender_id);
+                    return next;
+                  });
+                  onOpenTender(t.tender_id);
+                }}>
+                  <td className="num">{index + 1}</td>
+                  <td>
+                    <strong>{t.tender_id}</strong>{newTenderIds.has(t.tender_id) && <Badge tone="new">New</Badge>}
+                    {t.title && <div className="muted small">{t.title}</div>}
+                  </td>
                   <td>
                     <Badge tone={t.id_origin === "generated" ? "grey" : "blue"}>
                       {t.id_origin === "generated" ? "generated" : "from documents"}

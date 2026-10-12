@@ -90,9 +90,9 @@ Only files an agent needs. Sample data folders are large and not code.
 
 - `app/eval_classifier.py`: classifier accuracy harness (writes nothing to the DB).
 
-- `app/_cleanup.py`: one-off helper, hard-coded rows. Do not extend.
+- `app/bedrock_vlm_service.py`, `app/document_render_service.py`, `app/v2_document_pipeline.py`: image-first V2 Bedrock analysis path.
 
-- `SQLite_ops/`: `viewDB.py`, `deleteDB.py`, still pointing at a removed old DB. Stale.
+- `app/v2_extraction_service.py`, `app/v2_reconciliation_service.py`, `app/v2_job_service.py`: V2 extraction, review-first reconciliation, and durable local jobs.
 
 - `credentials/`: Gmail OAuth files. Never read, print or modify.
 
@@ -192,7 +192,9 @@ Routes in `app/main.py`; CORS allows only `http://localhost:5173` and `http://12
 
 - `GET /tenders/{tender_id:path}` full tender view. The `:path` converter is required because ids contain slashes. **This route must stay last in `main.py`.**
 
-- `POST /documents/upload` multipart `file`, PDF only, max 25 MB; runs the whole upload pipeline.
+- `POST /documents/upload` multipart `file`, PDF only, max 25 MB; returns `202` and queues the V2 image-analysis workflow.
+
+- `GET /documents`, `GET /documents/{id}`, `GET /documents/{id}/pages`, `GET /processing-jobs/{id}` expose V2 processing state and page metadata.
 
 - `GET /reviews[?status=all]`, `POST /reviews/{review_id}/resolve` body `{action: confirm|reject, tender_id}`.
 

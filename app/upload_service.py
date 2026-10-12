@@ -129,11 +129,6 @@ def process_pdf_document(
     }
 
 
-def process_upload(data: bytes, file_name: str) -> dict:
-    """Run the shared PDF pipeline for a user-uploaded document."""
-    return process_pdf_document(data, file_name, source="upload")
-
-
 def _decode_attachment(data: str) -> bytes:
     """Decode Gmail's base64url attachment payload, rejecting malformed input."""
     padded = data + "=" * (-len(data) % 4)
